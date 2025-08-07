@@ -1,6 +1,6 @@
 import os
 import asyncio
-from typing import List, Optional
+from typing import List
 from google import genai
 from app.services.polkadot_api_client import ProposalData
 import logging
@@ -8,247 +8,179 @@ import logging
 logger = logging.getLogger(__name__)
 
 class GeminiAnalyzer:
-    """Service to analyze and compare proposals using Gemini AI"""
+    """
+    Handles AI-powered analysis and comparison of proposals using the Gemini API.
+    This class is configured to align with the client pattern in gemini.py.
+    """
     
     def __init__(self, model_name: str = "gemini-2.5-flash-lite"):
         self.model_name = model_name
         self.client = None
         self._initialize_client()
-    
+
     def _initialize_client(self):
-        """Initialize Gemini client"""
+        """Initializes the Gemini client using the pattern from gemini.py."""
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            logger.warning("GEMINI_API_KEY not found. GeminiAnalyzer will be disabled.")
+            return
+        
         try:
-            api_key = os.getenv("GEMINI_API_KEY")
-            if not api_key:
-                logger.error("GEMINI_API_KEY environment variable not set")
-                return
-            
+            # Use genai.Client as seen in gemini.py for consistency
             self.client = genai.Client(api_key=api_key)
-            logger.info("Gemini analyzer client initialized successfully")
-            
+            logger.info("Gemini client initialized successfully (gemini_analyzer).")
         except Exception as e:
-            logger.error(f"Failed to initialize Gemini analyzer client: {str(e)}")
+            logger.error(f"Failed to initialize Gemini client: {str(e)}")
             self.client = None
-    
-    def _extract_reward_amount(self, proposal: ProposalData) -> str:
-        """Extract reward amount from proposal data"""
-        try:
-            if not proposal.beneficiaries:
-                return "Not specified"
-            
-            total_amount = 0
-            currency = "DOT"  # Default
-            
-            for beneficiary in proposal.beneficiaries:
-                amount = int(beneficiary.get("amount", 0))
-                asset_id = beneficiary.get("assetId", "")
-                
-                # Convert from smallest unit (assuming 10 decimals for DOT)
-                if asset_id == "1337":  # USDC on Polkadot Asset Hub
-                    amount_converted = amount / 1_000_000  # 6 decimals for USDC
-                    currency = "USDC"
-                else:
-                    amount_converted = amount / 10_000_000_000  # 10 decimals for DOT
-                    currency = "DOT"
-                
-                total_amount += amount_converted
-            
-            if total_amount > 0:
-                return f"{total_amount:,.0f} {currency}"
-            else:
-                return "Not specified"
-                
-        except Exception as e:
-            logger.error(f"Error extracting reward amount: {str(e)}")
-            return "Not specified"
-    
-    def _extract_proposal_type(self, content: str) -> str:
-        """Extract proposal type from content"""
-        content_lower = content.lower()
-        if "child bounty" in content_lower or "bounty" in content_lower:
-            return "Child Bounty"
-        elif "referendum" in content_lower:
-            return "ReferendumV2"
-        elif "treasury" in content_lower:
-            return "Treasury"
-        else:
-            return "ReferendumV2"  # Default
-    
-    def _extract_category(self, content: str) -> str:
-        """Extract category from content"""
-        content_lower = content.lower()
-        if any(word in content_lower for word in ["marketing", "content creation", "social"]):
-            return "Marketing"
-        elif any(word in content_lower for word in ["development", "software", "app", "extension", "wallet", "ai", "tool"]):
-            return "Development"
-        elif any(word in content_lower for word in ["infrastructure", "protocol", "network"]):
-            return "Infrastructure"
-        elif any(word in content_lower for word in ["governance", "democracy"]):
-            return "Democracy"
-        else:
-            return "Development"  # Default
-    
-    def _extract_description(self, content: str, title: str) -> str:
-        """Extract brief description from content"""
-        # Take first few sentences or key summary
-        sentences = content.split('. ')
-        
-        # Look for key description patterns
-        for sentence in sentences[:5]:  # Check first 5 sentences
-            if any(word in sentence.lower() for word in ["proposal", "seeks", "requests", "aims", "focuses"]):
-                # Clean and truncate
-                clean_sentence = sentence.replace('\n', ' ').replace('*', '').strip()
-                if len(clean_sentence) > 100:
-                    clean_sentence = clean_sentence[:100] + "..."
-                return clean_sentence
-        
-        # Fallback to title-based description
-        if "clarys" in title.lower():
-            return "AI-powered tool to reduce governance fatigue and streamline proposal analysis."
-        elif "subwallet" in title.lower():
-            return "Retroactive funding for SubWallet development activities."
-        else:
-            return "Polkadot ecosystem development proposal."
-    
+
+    async def _safe_gemini_call(self, prompt: str) -> str:
+        """
+        Awaits the Gemini API call in a separate thread to avoid blocking
+        the async event loop.
+        """
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            None,
+            lambda: self.client.models.generate_content(
+                model=self.model_name,
+                contents=prompt
+            )
+        )
+        return response.text.strip()
+
     async def analyze_single_proposal(self, proposal: ProposalData) -> str:
-        """Analyze a single proposal and provide detailed information"""
-        if proposal.error:
-            return f"Error: Unable to analyze proposal {proposal.id}"
-        
+        """
+        Analyzes a single proposal using Gemini to generate and format the output.
+        """
+        if hasattr(proposal, 'error') and proposal.error:
+            return f"Error: Unable to analyze proposal {proposal.id} due to a fetch error."
+
+        if not self.client:
+            return f"Proposal {proposal.id}: {proposal.title}\n(AI analysis disabled: Gemini client not available)"
+
         try:
-            # Extract all data locally without using Gemini
-            reward_amount = self._extract_reward_amount(proposal)
-            proposal_type = self._extract_proposal_type(proposal.content)
-            category = self._extract_category(proposal.content)
-            description = self._extract_description(proposal.content, proposal.title)
-            creation_date = proposal.created_at[:10] if proposal.created_at else "Not specified"
+            prompt = f"""
+            Analyze the following proposal and generate a summary in markdown format.
+
+            **Proposal Data:**
+            - **ID:** {proposal.id}
+            - **Title:** {proposal.title}
+            - **Status:** {proposal.status}
+            - **Creation Date:** {proposal.created_at[:10] if proposal.created_at else "N/A"}
+            - **Proposer:** {proposal.proposer or "Not specified"}
+            - **Vote Metrics:** {proposal.vote_metrics}
+            - **Timeline:** {proposal.timeline}
+            - **Content:**
+            ---
+            {proposal.content}
+            ---
+
+            **Instructions:**
+            Generate the output in the following format. The description should be a complete but summarized explanation of the proposal's main goal (around 2-3 sentences). Convert the raw JSON for vote metrics and timeline into a readable, natural language summary.
+
+            **Output Format:**
+            ## Proposal {proposal.id}:
+            **Title:** {proposal.title}
+            **Type:** [Extract from content, e.g., ReferendumV2, Child Bounty]
+            **Proposer:** [Proposer Address]
+            **Reward:** [Extract reward amount and currency, e.g., "256,096 USDC" or "460.7 DOT". If not found, state "Not specified"]
+            **Category:** [Extract from content, e.g., Development, Marketing, Infrastructure]
+            **Status:** {proposal.status}
+            **Creation Date:** {proposal.created_at[:10] if proposal.created_at else "N/A"}
+            **Description:** [A complete but summarized description of the proposal's main goal. ~2-3 sentences]
+            **Voting Status:** [Natural language summary of vote_metrics, e.g., "12 Aye votes, 35 Nay votes, 0.7 DOT in support"]
+            **Timeline:** [Natural language summary of timeline, e.g., "Submitted on 2025-07-18 → Deciding on 2025-07-18"]
+            """
             
-            # Format the response directly
-            analysis = f"""Proposal {proposal.id}:
-Title: {proposal.title}
-Type: {proposal_type}
-Proposer: {proposal.proposer or "Not specified"}
-Reward: {reward_amount}
-Category: {category}
-Status: {proposal.status}
-Creation Date: {creation_date}
-Description: {description}"""
-            
-            logger.info(f"Successfully analyzed proposal {proposal.id}")
-            return analysis
-            
+            return await self._safe_gemini_call(prompt)
+
         except Exception as e:
-            logger.error(f"Error analyzing proposal {proposal.id}: {str(e)}")
-            return f"Error analyzing proposal {proposal.id}: {str(e)}"
-    
+            logger.error(f"Error analyzing single proposal {proposal.id} with Gemini: {str(e)}")
+            return f"Error generating analysis for proposal {proposal.id}."
+
     async def compare_proposals(self, proposals: List[ProposalData]) -> str:
-        """Compare multiple proposals and provide detailed comparison"""
-        # Filter out proposals with errors
-        valid_proposals = [p for p in proposals if not p.error]
+        """
+        Compares multiple proposals using Gemini to generate and format the entire output.
+        """
+        valid_proposals = [p for p in proposals if not (hasattr(p, 'error') and p.error)]
         if len(valid_proposals) < 2:
-            return "Error: Not enough valid proposals to compare"
-        
+            return "Error: Not enough valid proposals to compare."
+
+        if not self.client:
+            return "Could not generate comparison. AI client not available."
+
         try:
-            # Generate individual summaries using local extraction
-            individual_summaries = []
-            
-            for proposal in valid_proposals:
-                reward_amount = self._extract_reward_amount(proposal)
-                proposal_type = self._extract_proposal_type(proposal.content)
-                category = self._extract_category(proposal.content)
-                description = self._extract_description(proposal.content, proposal.title)
-                creation_date = proposal.created_at[:10] if proposal.created_at else "Not specified"
-                
-                summary = f"""Proposal {proposal.id}:
-Title: {proposal.title}
-Type: {proposal_type}
-Proposer: {proposal.proposer or "Not specified"}
-Reward: {reward_amount}
-Category: {category}
-Status: {proposal.status}
-Creation Date: {creation_date}
-Description: {description}"""
-                
-                individual_summaries.append(summary)
-            
-            # Generate comparison using Gemini with minimal data
-            if self.client:
-                try:
-                    # Prepare minimal data for comparison
-                    comparison_data = []
-                    for proposal in valid_proposals:
-                        comparison_data.append({
-                            "id": proposal.id,
-                            "title": proposal.title,
-                            "reward": self._extract_reward_amount(proposal),
-                            "type": self._extract_proposal_type(proposal.content),
-                            "category": self._extract_category(proposal.content),
-                            "created": proposal.created_at[:10] if proposal.created_at else "Not specified",
-                            "key_content": proposal.content[:300]  # Very brief content
-                        })
-                    
-                    comparison_prompt = f"""Compare these proposals and provide ONLY the comparison section in this format:
+            proposal_details = ""
+            for p in valid_proposals:
+                proposal_details += f"""
+                ---
+                **Proposal Data (ID: {p.id}):**
+                - **Title:** {p.title}
+                - **Status:** {p.status}
+                - **Creation Date:** {p.created_at[:10] if p.created_at else "N/A"}
+                - **Proposer:** {p.proposer or "Not specified"}
+                - **Vote Metrics:** {p.vote_metrics}
+                - **Timeline:** {p.timeline}
+                - **Content (first 2000 chars):** {p.content[:2000]}... 
+                ---
+                """
 
-Comparison:
-Cost: [Compare funding amounts in 1 sentence]
-Milestones: [Compare timelines in 1 sentence]
-Impact on Polkadot: [Compare ecosystem impact in 1 sentence]
-Timeline: [Compare project timelines in 1 sentence]
-Completeness: [Compare how well-defined each proposal is in 1 sentence]
+            prompt = f"""
+            Analyze and compare the following proposals. Generate a detailed summary for each, followed by a final comparison section, all in markdown format.
 
-Data: {comparison_data}
+            **All Proposal Data:**
+            {proposal_details}
 
-IMPORTANT: Provide ONLY the Comparison section, keep each point to 1 sentence maximum."""
-                    
-                    loop = asyncio.get_event_loop()
-                    response = await loop.run_in_executor(
-                        None, 
-                        lambda: self.client.models.generate_content(
-                            model=self.model_name,
-                            contents=comparison_prompt
-                        )
-                    )
-                    
-                    comparison_section = response.text.strip()
-                    
-                except Exception as e:
-                    logger.error(f"Gemini comparison failed, using fallback: {str(e)}")
-                    comparison_section = self._generate_fallback_comparison(valid_proposals)
-            else:
-                comparison_section = self._generate_fallback_comparison(valid_proposals)
-            
-            # Combine individual summaries with comparison
-            full_analysis = "\n\n".join(individual_summaries) + "\n\n" + comparison_section
-            
-            logger.info(f"Successfully compared {len(valid_proposals)} proposals")
-            return full_analysis
-            
+            **Instructions:**
+            1.  For EACH proposal, create a summary section as specified in the format below.
+            2.  After all individual summaries, create a "## Comparison" section.
+            3.  The description for each proposal must be a complete but summarized explanation of its purpose (~2-3 sentences).
+            4.  Convert raw JSON data for votes and timeline into readable, natural language summaries.
+            5.  The final comparison section must be concise (1 sentence per point).
+
+            **Required Output Format:**
+
+            ## Proposal [ID]:
+            **Title:** [Title]
+            **Type:** [Extract from content, e.g., ReferendumV2]
+            **Proposer:** [Proposer Address]
+            **Reward:** [Extract reward amount and currency. If not found, state "Not specified"]
+            **Category:** [Extract from content, e.g., Development]
+            **Status:** [Status]
+            **Creation Date:** [Creation Date]
+            **Description:** [A complete but summarized description. ~2-3 sentences]
+            **Voting Status:** [Natural language summary of votes]
+            **Timeline:** [Natural language summary of timeline]
+
+            ## Proposal [Next ID]:
+            ... (repeat for each proposal) ...
+
+            ## Comparison:
+            **Cost:** [Compare funding amounts in 1 sentence]
+            **Milestones:** [Compare timelines and deliverables in 1 sentence]
+            **Impact on Polkadot:** [Compare ecosystem impact in 1 sentence]
+            **Timeline:** [Compare project timelines in 1 sentence]
+            **Completeness:** [Compare how well-defined each proposal is in 1 sentence]
+            """
+
+            return await self._safe_gemini_call(prompt)
+
         except Exception as e:
-            logger.error(f"Error comparing proposals: {str(e)}")
-            return f"Error comparing proposals: {str(e)}"
-    
-    def _generate_fallback_comparison(self, proposals: List[ProposalData]) -> str:
-        """Generate a basic comparison when Gemini is unavailable"""
-        rewards = [self._extract_reward_amount(p) for p in proposals]
-        types = [self._extract_proposal_type(p.content) for p in proposals]
-        
-        return f"""Comparison:
-Cost: Proposal {proposals[0].id} requests {rewards[0]} while Proposal {proposals[1].id} requests {rewards[1]}.
-Milestones: Both proposals have different development timelines and deliverables.
-Impact on Polkadot: Both proposals contribute to the Polkadot ecosystem in their respective areas.
-Timeline: The proposals have different timeline approaches for their development phases.
-Completeness: Both proposals provide structured information about their objectives and requirements."""
-    
+            logger.error(f"Error comparing proposals with Gemini: {str(e)}")
+            return "Error generating proposal comparison."
+
     async def analyze_proposals(self, proposals: List[ProposalData]) -> str:
-        """Main method to analyze proposals - single analysis or comparison based on count"""
+        """
+        Main method to analyze proposals. It delegates to the appropriate
+        single or comparison method based on the number of valid proposals.
+        """
         if not proposals:
-            return "No proposals to analyze"
+            return "No proposals to analyze."
         
-        # Filter out proposals with errors
-        valid_proposals = [p for p in proposals if not p.error]
+        valid_proposals = [p for p in proposals if not (hasattr(p, 'error') and p.error)]
         
         if len(valid_proposals) == 0:
-            return "No valid proposals to analyze"
+            return "No valid proposals could be analyzed."
         elif len(valid_proposals) == 1:
             return await self.analyze_single_proposal(valid_proposals[0])
         else:

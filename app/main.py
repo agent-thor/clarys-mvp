@@ -64,6 +64,8 @@ async def extract_ids_and_links_with_proposals(request: EnhancedExtractionReques
             request.fetch_proposals,
             request.analyze_proposals
         )
+
+        print(f"\n\n\n outcome is {result.proposals} \n \n")
         
         logger.info(f"Enhanced extraction completed: {len(result.ids)} IDs, {len(result.links)} links, {len(result.proposals)} proposals")
         return result

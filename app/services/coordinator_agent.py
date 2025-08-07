@@ -96,8 +96,6 @@ class CoordinatorAgent(BaseAgent):
                             content=proposal_data.content,
                             status=proposal_data.status,
                             created_at=proposal_data.created_at,
-                            proposer=proposal_data.proposer,
-                            beneficiaries=proposal_data.beneficiaries,
                             vote_metrics=proposal_data.vote_metrics,
                             timeline=proposal_data.timeline,
                             error=proposal_data.error
@@ -109,7 +107,7 @@ class CoordinatorAgent(BaseAgent):
             if analyze_proposals and proposal_data_list:
                 self.log_info("Generating AI analysis of proposals")
                 try:
-                    # Use already fetched proposal data - no need to re-fetch!
+                    # Pass full proposal data for better analysis with markdown formatting
                     analysis = await self.analyzer.analyze_proposals(proposal_data_list)
                     self.log_info("AI analysis completed")
                     
