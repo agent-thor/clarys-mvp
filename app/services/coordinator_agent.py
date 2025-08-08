@@ -1,146 +1,165 @@
 import asyncio
-from typing import Dict, Any, List
+import re
+from typing import Dict, Any, List, Tuple, Optional
 from app.agents.base_agent import BaseAgent
 from app.agents.llm_extractor_agent import LLMExtractorAgent
 from app.agents.regex_extractor_agent import RegexExtractorAgent
 from app.models.response_models import ExtractionResponse, EnhancedExtractionResponse, ProposalInfo
-from app.services.polkadot_api_client import PolkadotAPIClient
+from app.services.polkadot_api_client import PolkadotAPIClient, ProposalData
 from app.services.gemini_analyzer import GeminiAnalyzer
 
 class CoordinatorAgent(BaseAgent):
-    """Coordinator agent that orchestrates the LLM and Regex extractor agents"""
-    
     def __init__(self):
         super().__init__("Coordinator")
-        
-        # Initialize the extractor agents
         self.llm_agent = LLMExtractorAgent()
         self.regex_agent = RegexExtractorAgent()
         self.analyzer = GeminiAnalyzer()
-    
-    async def process_prompt(self, prompt: str) -> ExtractionResponse:
-        """Process prompt using both extractor agents and aggregate results"""
-        self.log_info(f"Coordinating extraction for prompt: {prompt}")
+
+    def _parse_links(self, links: List[str]) -> List[Tuple[str, str]]:
+        """
+        Parses URLs to extract the proposal ID and type ('Discussion' or 'ReferendumV2').
+        Example 1: .../referenda/1697 -> ("1697", "ReferendumV2")
+        Example 2: .../post/3313 -> ("3313", "Discussion")
+        """
+        parsed_proposals = []
+        # Pattern to capture type ('referenda' or 'post') and the trailing ID
+        pattern = r"/(referenda|post)/(\d+)$"
         
-        try:
-            # Run both agents in parallel for efficiency
-            tasks = [
-                self.llm_agent.process(prompt),
-                self.regex_agent.process(prompt)
-            ]
-            
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            
-            # Process results
-            ids = []
-            links = []
-            
-            # Extract IDs from LLM agent result
-            if isinstance(results[0], dict) and "ids" in results[0]:
-                ids = results[0]["ids"]
-            elif isinstance(results[0], Exception):
-                self.log_error(f"LLM agent error: {results[0]}")
-            
-            # Extract links from Regex agent result
-            if isinstance(results[1], dict) and "links" in results[1]:
-                links = results[1]["links"]
-            elif isinstance(results[1], Exception):
-                self.log_error(f"Regex agent error: {results[1]}")
-            
-            # Create response
-            response = ExtractionResponse(
-                ids=list(set(ids)),  # Remove duplicates
-                links=list(set(links))  # Remove duplicates
-            )
-            
-            self.log_info(f"Coordination completed: {response}")
-            return response
-            
-        except Exception as e:
-            self.log_error(f"Error in coordination: {str(e)}")
-            # Return empty response on error
-            return ExtractionResponse(ids=[], links=[])
-    
-    async def process_prompt_with_proposals(
-        self, 
-        prompt: str, 
-        proposal_type: str = "ReferendumV2",
-        fetch_proposals: bool = True,
-        analyze_proposals: bool = True
-    ) -> EnhancedExtractionResponse:
-        """Process prompt and optionally fetch detailed proposal information"""
+        for link in links:
+            match = re.search(pattern, link)
+            if match:
+                type_str, p_id = match.groups()
+                proposal_type = "ReferendumV2" if type_str == "referenda" else "Discussion"
+                parsed_proposals.append((p_id, proposal_type))
+        
+        return parsed_proposals
+
+    def _calculate_reward(self, proposal: ProposalData) -> Optional[str]:
+        """Calculates the total reward from the beneficiaries list."""
+        if not proposal.beneficiaries:
+            return None
+        
+        total_amount = 0
+        currency = "tokens"  # Default currency
+        
+        for beneficiary in proposal.beneficiaries:
+            try:
+                amount = int(beneficiary.get("amount", 0))
+                asset_id = beneficiary.get("assetId")
+
+                if asset_id == "1337":  # Assume USDC
+                    total_amount += amount / 1_000_000  # 6 decimals for USDC
+                    currency = "USDC"
+                else:  # Assume DOT or other 10-decimal tokens
+                    total_amount += amount / 10_000_000_000
+                    currency = "DOT"
+            except (ValueError, TypeError):
+                continue # Skip if amount is not a valid number
+        
+        if total_amount > 0:
+            return f"{total_amount:,.2f} {currency}"
+        return None
+
+    async def process_prompt_with_proposals(self, prompt: str) -> EnhancedExtractionResponse:
+        """
+        Processes a prompt to extract IDs and links, intelligently determines proposal types,
+        fetches data, calculates rewards, and generates an AI analysis.
+        """
         self.log_info(f"Enhanced coordinating extraction for prompt: {prompt}")
         
-        try:
-            # First, extract IDs and links using the standard process
-            basic_result = await self.process_prompt(prompt)
-            
-            proposals = []
-            proposal_data_list = []  # Store the fetched data to avoid re-fetching
-            
-            # If we have IDs and proposal fetching is enabled, fetch proposal details
-            if basic_result.ids and fetch_proposals:
-                self.log_info(f"Fetching proposal details for {len(basic_result.ids)} IDs")
-                
-                async with PolkadotAPIClient() as api_client:
-                    proposal_data_list = await api_client.fetch_multiple_proposals(
-                        basic_result.ids, 
-                        proposal_type
-                    )
-                    
-                    # Convert to ProposalInfo objects
-                    for proposal_data in proposal_data_list:
-                        proposal_info = ProposalInfo(
-                            id=proposal_data.id,
-                            title=proposal_data.title,
-                            content=proposal_data.content,
-                            status=proposal_data.status,
-                            created_at=proposal_data.created_at,
-                            vote_metrics=proposal_data.vote_metrics,
-                            timeline=proposal_data.timeline,
-                            error=proposal_data.error
-                        )
-                        proposals.append(proposal_info)
-            
-            # Generate AI analysis if requested and we have proposals
-            analysis = None
-            if analyze_proposals and proposal_data_list:
-                self.log_info("Generating AI analysis of proposals")
-                try:
-                    # Pass full proposal data for better analysis with markdown formatting
-                    analysis = await self.analyzer.analyze_proposals(proposal_data_list)
-                    self.log_info("AI analysis completed")
-                    
-                except Exception as e:
-                    self.log_error(f"Error generating analysis: {str(e)}")
-                    analysis = f"Error generating analysis: {str(e)}"
-            
-            # Create enhanced response
-            enhanced_response = EnhancedExtractionResponse(
-                ids=basic_result.ids,
-                links=basic_result.links,
-                proposals=proposals,
-                analysis=analysis
-            )
-            
-            self.log_info(f"Enhanced coordination completed: {len(enhanced_response.ids)} IDs, {len(enhanced_response.links)} links, {len(enhanced_response.proposals)} proposals, analysis: {'Yes' if analysis else 'No'}")
-            return enhanced_response
-            
-        except Exception as e:
-            self.log_error(f"Error in enhanced coordination: {str(e)}")
-            # Return basic response without proposals on error
-            basic_result = await self.process_prompt(prompt)
-            return EnhancedExtractionResponse(
-                ids=basic_result.ids,
-                links=basic_result.links,
-                proposals=[],
-                analysis=None
-            )
+        # 1. Initial Extraction from Prompt
+        basic_result = await self.process_prompt(prompt)
+        
+        # 2. Determine Default Proposal Type
+        default_proposal_type = "Discussion" if "discussion" in prompt.lower() else "ReferendumV2"
+        self.log_info(f"Default proposal type set to: {default_proposal_type}")
 
+        # 3. Consolidate All Proposals to Fetch
+        proposals_to_fetch = {}  # Use a dict to store {id: type} to handle duplicates
+        
+        # Add IDs extracted directly from text with the default type
+        for p_id in basic_result.ids:
+            if p_id not in proposals_to_fetch:
+                proposals_to_fetch[p_id] = default_proposal_type
+
+        # Add IDs and types parsed from links
+        parsed_from_links = self._parse_links(basic_result.links)
+        for p_id, p_type in parsed_from_links:
+            proposals_to_fetch[p_id] = p_type # This will overwrite the default if a link is more specific
+
+        self.log_info(f"Proposals consolidated for fetching: {proposals_to_fetch}")
+
+        # 4. Fetch All Proposal Data in a Single Batch
+        proposals = []
+        proposal_data_list = []
+        
+        if proposals_to_fetch:
+            # Group by type for efficient fetching
+            by_type = {}
+            for p_id, p_type in proposals_to_fetch.items():
+                if p_type not in by_type:
+                    by_type[p_type] = []
+                by_type[p_type].append(p_id)
+
+            async with PolkadotAPIClient() as api_client:
+                fetch_tasks = []
+                for p_type, p_ids in by_type.items():
+                    self.log_info(f"Fetching {len(p_ids)} proposals of type {p_type}")
+                    fetch_tasks.append(api_client.fetch_multiple_proposals(p_ids, p_type))
+                
+                results_by_type = await asyncio.gather(*fetch_tasks)
+                for result_set in results_by_type:
+                    proposal_data_list.extend(result_set)
+
+            # 4.5 Calculate rewards and update proposal data
+            for p_data in proposal_data_list:
+                p_data.calculated_reward = self._calculate_reward(p_data)
+                
+            # Convert to ProposalInfo objects
+            for proposal_data in proposal_data_list:
+                proposals.append(ProposalInfo(**proposal_data.__dict__))
+        
+        # 5. Generate AI Analysis
+        analysis = None
+        if proposal_data_list:
+            self.log_info("Generating AI analysis of proposals")
+            # print(f"\n\n proposal_data_list {proposal_data_list} \n\n")
+            analysis = await self.analyzer.analyze_proposals(proposal_data_list)
+            self.log_info("AI analysis completed")
+        
+        # 6. Construct Final Response
+        # Ensure final IDs list is unique and matches what was fetched
+        final_ids = sorted(list(proposals_to_fetch.keys()), key=int)
+        
+        return EnhancedExtractionResponse(
+            ids=final_ids,
+            links=basic_result.links,
+            proposals=proposals,
+            analysis=analysis
+        )
+    
+    # ... process_prompt method remains the same ...
+    async def process_prompt(self, prompt: str) -> ExtractionResponse:
+        """
+        Coordinates the extraction of IDs and links from a given prompt.
+        It runs the LLM and Regex agents concurrently and aggregates their results.
+        """
+        self.log_info(f"Coordinating extraction for prompt: {prompt}")
+        
+        # Run agents concurrently
+        llm_task = asyncio.create_task(self.llm_agent.process(prompt))
+        regex_task = asyncio.create_task(self.regex_agent.process(prompt))
+        
+        llm_result, regex_result = await asyncio.gather(llm_task, regex_task)
+        
+        # Aggregate and deduplicate results
+        combined_ids = sorted(list(set(llm_result.get("ids", []) + regex_result.get("ids", []))), key=int)
+        combined_links = sorted(list(set(llm_result.get("links", []) + regex_result.get("links", []))))
+        
+        self.log_info(f"Coordination completed: {len(combined_ids)} IDs, {len(combined_links)} links")
+        
+        return ExtractionResponse(ids=combined_ids, links=combined_links)
+    
     async def process(self, input_data: str) -> Dict[str, Any]:
-        """Base agent interface implementation"""
-        result = await self.process_prompt(input_data)
-        return {
-            "ids": result.ids,
-            "links": result.links
-        } 
+        """Generic process method for the agent."""
+        return await self.process_prompt_with_proposals(input_data) 

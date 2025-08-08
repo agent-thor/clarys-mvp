@@ -52,22 +52,17 @@ async def extract_ids_and_links(request: ExtractionRequest):
 @app.post("/extract-with-proposals", response_model=EnhancedExtractionResponse)
 async def extract_ids_and_links_with_proposals(request: EnhancedExtractionRequest):
     """
-    Extract IDs and links from natural language prompt and fetch detailed proposal information
+    Extracts IDs and links, fetches proposal data, and returns an AI analysis.
+    The proposal type is intelligently determined from the prompt.
     """
     try:
         logger.info(f"Processing enhanced extraction request: {request.prompt}")
         
-        # Use coordinator agent to process the request with proposal fetching and analysis
-        result = await coordinator.process_prompt_with_proposals(
-            request.prompt,
-            request.proposal_type,
-            request.fetch_proposals,
-            request.analyze_proposals
-        )
-
-        print(f"\n\n\n outcome is {result.proposals} \n \n")
+        # The coordinator now handles all logic internally
+        result = await coordinator.process_prompt_with_proposals(request.prompt)
+        # print(f"\n\n\n outcome is {result} \n \n")
         
-        logger.info(f"Enhanced extraction completed: {len(result.ids)} IDs, {len(result.links)} links, {len(result.proposals)} proposals")
+        logger.info(f"Enhanced extraction completed: {len(result.ids)} IDs, {len(result.links)} links, {len(result.proposals)} proposals, analysis: {'Yes' if result.analysis else 'No'}")
         return result
         
     except Exception as e:

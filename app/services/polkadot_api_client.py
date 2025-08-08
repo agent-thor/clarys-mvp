@@ -2,7 +2,7 @@ import asyncio
 import httpx
 import logging
 from typing import List, Dict, Any, Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
@@ -15,10 +15,12 @@ class ProposalData:
     status: str
     created_at: str
     proposer: Optional[str] = None
-    beneficiaries: List[Dict] = None
+    beneficiaries: List[Dict] = field(default_factory=list)
     vote_metrics: Optional[Dict] = None
-    timeline: List[Dict] = None
+    timeline: List[Dict] = field(default_factory=list)
     error: Optional[str] = None
+    # New field to hold the pre-calculated reward
+    calculated_reward: Optional[str] = None
 
 class PolkadotAPIClient:
     """Client for fetching proposal data from Polkadot Polkassembly API"""
@@ -56,20 +58,17 @@ class PolkadotAPIClient:
             data = response.json()
             
             # Extract relevant information from the API response
-            proposal_data = ProposalData(
+            return ProposalData(
                 id=proposal_id,
-                title=data.get("title", "No title available"),
-                content=data.get("content", "No content available"),
-                status=data.get("onChainInfo", {}).get("status", "Unknown"),
+                title=data.get("title", f"Proposal {proposal_id}"),
+                content=data.get("content", ""),
+                status=data.get("onChainInfo", {}).get("status", "Status not found"),
                 created_at=data.get("createdAt", ""),
                 proposer=data.get("onChainInfo", {}).get("proposer"),
                 beneficiaries=data.get("onChainInfo", {}).get("beneficiaries", []),
                 vote_metrics=data.get("onChainInfo", {}).get("voteMetrics"),
                 timeline=data.get("onChainInfo", {}).get("timeline", [])
             )
-            
-            logger.info(f"Successfully fetched proposal {proposal_id}: {proposal_data.title}")
-            return proposal_data
             
         except httpx.HTTPStatusError as e:
             error_msg = f"HTTP error {e.response.status_code} for proposal {proposal_id}"

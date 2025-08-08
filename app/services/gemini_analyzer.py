@@ -68,6 +68,7 @@ class GeminiAnalyzer:
             - **Status:** {proposal.status}
             - **Creation Date:** {proposal.created_at[:10] if proposal.created_at else "N/A"}
             - **Proposer:** {proposal.proposer or "Not specified"}
+            - **Calculated Reward:** {proposal.calculated_reward or "Not specified"}
             - **Vote Metrics:** {proposal.vote_metrics}
             - **Timeline:** {proposal.timeline}
             - **Content:**
@@ -76,14 +77,14 @@ class GeminiAnalyzer:
             ---
 
             **Instructions:**
-            Generate the output in the following format. The description should be a complete but summarized explanation of the proposal's main goal (around 2-3 sentences). Convert the raw JSON for vote metrics and timeline into a readable, natural language summary.
+            Generate the output in the following format. The description should be a complete but summarized explanation of the proposal's main goal (around 2-3 sentences). Use the 'Calculated Reward' field for the reward value.
 
             **Output Format:**
             ## Proposal {proposal.id}:
             **Title:** {proposal.title}
             **Type:** [Extract from content, e.g., ReferendumV2, Child Bounty]
             **Proposer:** [Proposer Address]
-            **Reward:** [Extract reward amount and currency, e.g., "256,096 USDC" or "460.7 DOT". If not found, state "Not specified"]
+            **Reward:** {proposal.calculated_reward or "Not specified"}
             **Category:** [Extract from content, e.g., Development, Marketing, Infrastructure]
             **Status:** {proposal.status}
             **Creation Date:** {proposal.created_at[:10] if proposal.created_at else "N/A"}
@@ -119,6 +120,7 @@ class GeminiAnalyzer:
                 - **Status:** {p.status}
                 - **Creation Date:** {p.created_at[:10] if p.created_at else "N/A"}
                 - **Proposer:** {p.proposer or "Not specified"}
+                - **Calculated Reward:** {p.calculated_reward or "Not specified"}
                 - **Vote Metrics:** {p.vote_metrics}
                 - **Timeline:** {p.timeline}
                 - **Content (first 2000 chars):** {p.content[:2000]}... 
@@ -132,7 +134,7 @@ class GeminiAnalyzer:
             {proposal_details}
 
             **Instructions:**
-            1.  For EACH proposal, create a summary section as specified in the format below.
+            1.  For EACH proposal, create a summary section as specified in the format below. Use the 'Calculated Reward' provided for each proposal.
             2.  After all individual summaries, create a "## Comparison" section.
             3.  The description for each proposal must be a complete but summarized explanation of its purpose (~2-3 sentences).
             4.  Convert raw JSON data for votes and timeline into readable, natural language summaries.
@@ -144,7 +146,7 @@ class GeminiAnalyzer:
             **Title:** [Title]
             **Type:** [Extract from content, e.g., ReferendumV2]
             **Proposer:** [Proposer Address]
-            **Reward:** [Extract reward amount and currency. If not found, state "Not specified"]
+            **Reward:** [Use the pre-calculated reward value from the data]
             **Category:** [Extract from content, e.g., Development]
             **Status:** [Status]
             **Creation Date:** [Creation Date]
