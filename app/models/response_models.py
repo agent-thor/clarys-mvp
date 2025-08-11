@@ -49,4 +49,30 @@ class EnhancedExtractionResponse(BaseModel):
                 ],
                 "analysis": "Proposal 1679:\nTitle: CLARYS.AI Beta Product Development\n...\nComparison:\nCost: Proposal 1679 requests 129K USDC..."
             }
+        }
+
+class AccountabilityCheckResponse(BaseModel):
+    ids: List[str] = Field(default=[], description="List of extracted IDs")
+    links: List[str] = Field(default=[], description="List of extracted URLs")
+    proposals: List[ProposalInfo] = Field(default=[], description="Detailed proposal information for extracted IDs")
+    accountability_analysis: Optional[str] = Field(default=None, description="AI-powered accountability analysis of proposals")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "ids": ["1679"],
+                "links": [],
+                "proposals": [
+                    {
+                        "id": "1679",
+                        "title": "CLARYS.AI Beta Product Development",
+                        "content": "## Why do we need Clarys.AI?...",
+                        "status": "Deciding",
+                        "created_at": "2025-07-18T07:26:49.489Z",
+                        "proposer": "146ZZqm2cMHLf3ju7oc8M9JnPaAktuADAKThagKnXqzjPJbZ",
+                        "error": None
+                    }
+                ],
+                "accountability_analysis": "## Accountability Analysis for Proposal 1679:\n\n**Economic feasibility and cost sharing:** ✅ Clear budget breakdown...\n**Technical implementation:** ⚠️ Needs more technical specifications..."
+            }
         } 

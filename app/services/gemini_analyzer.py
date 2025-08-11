@@ -102,10 +102,11 @@ class GeminiAnalyzer:
     async def compare_proposals(self, proposals: List[ProposalData]) -> str:
         """
         Compares multiple proposals using Gemini to generate and format the entire output.
+        Requires at least 2 proposals for comparison.
         """
         valid_proposals = [p for p in proposals if not (hasattr(p, 'error') and p.error)]
         if len(valid_proposals) < 2:
-            return "Error: Not enough valid proposals to compare."
+            return "Error: At least 2 valid proposals are required for comparison analysis."
 
         if not self.client:
             return "Could not generate comparison. AI client not available."
@@ -128,7 +129,7 @@ class GeminiAnalyzer:
                 """
 
             prompt = f"""
-            Analyze and compare the following proposals. Generate a detailed summary for each, followed by a final comparison section, all in markdown format.
+            Analyze and compare the following {len(valid_proposals)} proposals. Generate a detailed summary for each, followed by a final comparison section, all in markdown format.
 
             **All Proposal Data:**
             {proposal_details}
@@ -175,6 +176,7 @@ class GeminiAnalyzer:
         """
         Main method to analyze proposals. It delegates to the appropriate
         single or comparison method based on the number of valid proposals.
+        Requires at least 2 proposals for comparison analysis.
         """
         if not proposals:
             return "No proposals to analyze."
@@ -186,4 +188,5 @@ class GeminiAnalyzer:
         elif len(valid_proposals) == 1:
             return await self.analyze_single_proposal(valid_proposals[0])
         else:
+            # Only proceed with comparison if we have at least 2 proposals
             return await self.compare_proposals(valid_proposals) 
