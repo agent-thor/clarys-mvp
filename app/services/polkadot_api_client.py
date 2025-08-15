@@ -14,6 +14,7 @@ class ProposalData:
     content: str
     status: str
     created_at: str
+    proposal_type: str = "ReferendumV2"  # Add the missing proposal_type field
     proposer: Optional[str] = None
     beneficiaries: List[Dict] = field(default_factory=list)
     vote_metrics: Optional[Dict] = None
@@ -67,7 +68,8 @@ class PolkadotAPIClient:
                 proposer=data.get("onChainInfo", {}).get("proposer"),
                 beneficiaries=data.get("onChainInfo", {}).get("beneficiaries", []),
                 vote_metrics=data.get("onChainInfo", {}).get("voteMetrics"),
-                timeline=data.get("onChainInfo", {}).get("timeline", [])
+                timeline=data.get("onChainInfo", {}).get("timeline", []),
+                proposal_type=proposal_type # Store the proposal_type
             )
             
         except httpx.HTTPStatusError as e:

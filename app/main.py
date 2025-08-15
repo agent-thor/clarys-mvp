@@ -3,6 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.models.request_models import ExtractionRequest, EnhancedExtractionRequest, AccountabilityCheckRequest
 from app.models.response_models import ExtractionResponse, EnhancedExtractionResponse, AccountabilityCheckResponse
 from app.services.coordinator_agent import CoordinatorAgent
+from app.services.routing_service import RoutingService
+from app.services.algolia import PolkassemblySearch
+from pydantic import BaseModel
 import logging
 
 # Configure logging
@@ -18,86 +21,127 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with specific origins
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Initialize the coordinator agent
+# Initialize services
 coordinator = CoordinatorAgent()
+routing_service = RoutingService()
+algolia_client = PolkassemblySearch()
+
+class SearchAnalyzeRequest(BaseModel):
+    """Request model for search and analyze endpoint"""
+    query: str
+    num_results: int = 5
+
+class SearchAnalyzeResponse(BaseModel):
+    """Response model for search and analyze endpoint"""
+    query: str
+    algolia_results: list
+    proposals: list
+    analysis: str
 
 @app.get("/")
 async def root():
+    """Root endpoint with API information"""
     return {
         "message": "Multi-Agent ID & Link Extractor API",
         "version": "1.0.0",
         "endpoints": {
             "/extract": "Basic ID and link extraction",
             "/extract-with-proposals": "Enhanced extraction with proposal fetching and AI analysis",
-            "/accountability-check": "Accountability analysis of proposals based on governance checkpoints"
+            "/accountability-check": "Accountability analysis of proposals",
+            "/route": "Intelligent prompt routing",
+            "/search-and-analyze": "Search Algolia and analyze with Gemini",
+            "/health": "Health check"
         }
     }
 
-@app.get("/health")
-async def health_check():
-    return {"status": "healthy", "message": "API is running"}
-
 @app.post("/extract", response_model=ExtractionResponse)
 async def extract_ids_and_links(request: ExtractionRequest):
-    """
-    Extract IDs and links from natural language prompt using multi-agent system
-    """
+    """Basic extraction of IDs and links from prompt"""
     try:
-        logger.info(f"Processing extraction request: {request.prompt}")
-        
-        # Use coordinator agent to process the request
         result = await coordinator.process_prompt(request.prompt)
-        
-        logger.info(f"Extraction completed: {len(result.ids)} IDs, {len(result.links)} links")
-        return result
-        
+        return ExtractionResponse(**result)
     except Exception as e:
-        logger.error(f"Error processing request: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        logger.error(f"Error in /extract: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/extract-with-proposals", response_model=EnhancedExtractionResponse)
-async def extract_ids_and_links_with_proposals(request: EnhancedExtractionRequest):
-    """
-    Extracts IDs and links, fetches proposal data, and returns an AI analysis.
-    The proposal type is intelligently determined from the prompt.
-    """
+async def extract_with_proposals(request: EnhancedExtractionRequest):
+    """Enhanced extraction with proposal fetching and AI analysis"""
     try:
-        logger.info(f"Processing enhanced extraction request: {request.prompt}")
-        
-        # The coordinator now handles all logic internally
         result = await coordinator.process_prompt_with_proposals(request.prompt)
-        
-        logger.info(f"Enhanced extraction completed: {len(result.ids)} IDs, {len(result.links)} links, {len(result.proposals)} proposals, analysis: {'Yes' if result.analysis else 'No'}")
-        return result
-        
+        return result  # Return directly, don't unpack with **
     except Exception as e:
-        logger.error(f"Error processing enhanced request: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        logger.error(f"Error in /extract-with-proposals: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/accountability-check", response_model=AccountabilityCheckResponse)
-async def accountability_check_proposals(request: AccountabilityCheckRequest):
+async def accountability_check(request: AccountabilityCheckRequest):
+    """Accountability analysis of proposals"""
+    try:
+        result = await coordinator.process_prompt_with_accountability_check(request.prompt)
+        return result  # Return directly, don't unpack with **
+    except Exception as e:
+        logger.error(f"Error in /accountability-check: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/route")
+async def route_request(request: dict):
+    """Intelligent prompt routing"""
+    try:
+        prompt = request.get("prompt", "")
+        if not prompt:
+            raise HTTPException(status_code=400, detail="Prompt is required")
+        
+        result = await routing_service.process_routed_request(prompt)
+        return result
+    except Exception as e:
+        logger.error(f"Error in /route: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/search-and-analyze", response_model=SearchAnalyzeResponse)
+async def search_and_analyze(request: SearchAnalyzeRequest):
     """
-    Extracts IDs and links, fetches proposal data, and returns an AI-powered accountability analysis
-    based on governance best practices and key accountability checkpoints.
+    Complete workflow: Search Algolia -> Extract proposal IDs/types -> Fetch from Polkassembly -> Analyze with Gemini
+    
+    This endpoint:
+    1. Searches Algolia for relevant proposals based on the query
+    2. Extracts proposal IDs and types (ReferendumV2 or Discussion) from search results
+    3. Fetches detailed proposal data from Polkassembly API
+    4. Sends the data to Gemini for intelligent analysis and query answering
     """
     try:
-        logger.info(f"Processing accountability check request: {request.prompt}")
+        logger.info(f"Processing search and analyze request for query: '{request.query}'")
         
-        # Use coordinator agent to process the request with accountability analysis
-        result = await coordinator.process_prompt_with_accountability_check(request.prompt)
+        result = await algolia_client.search_and_analyze_with_gemini(
+            request.query, 
+            request.num_results
+        )
         
-        logger.info(f"Accountability check completed: {len(result.ids)} IDs, {len(result.links)} links, {len(result.proposals)} proposals, analysis: {'Yes' if result.accountability_analysis else 'No'}")
-        return result
+        return SearchAnalyzeResponse(**result)
         
     except Exception as e:
-        logger.error(f"Error processing accountability check request: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        logger.error(f"Error in /search-and-analyze: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    return {
+        "status": "healthy",
+        "message": "Multi-Agent API is running",
+        "services": {
+            "coordinator": "active",
+            "routing_service": "active",
+            "algolia_client": "active"
+        }
+    }
+
 
 if __name__ == "__main__":
     import uvicorn

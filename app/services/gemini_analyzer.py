@@ -48,129 +48,136 @@ class GeminiAnalyzer:
         )
         return response.text.strip()
 
-    async def analyze_single_proposal(self, proposal: ProposalData) -> str:
+    async def analyze_single_proposal(self, proposal: ProposalData, custom_prompt: str = None) -> str:
         """
-        Analyzes a single proposal using Gemini to generate and format the output.
-        """
-        if hasattr(proposal, 'error') and proposal.error:
-            return f"Error: Unable to analyze proposal {proposal.id} due to a fetch error."
-
-        if not self.client:
-            return f"Proposal {proposal.id}: {proposal.title}\n(AI analysis disabled: Gemini client not available)"
-
-        try:
-            prompt = f"""
-            Analyze the following proposal and generate a summary in markdown format.
-
-            **Proposal Data:**
-            - **ID:** {proposal.id}
-            - **Title:** {proposal.title}
-            - **Status:** {proposal.status}
-            - **Creation Date:** {proposal.created_at[:10] if proposal.created_at else "N/A"}
-            - **Proposer:** {proposal.proposer or "Not specified"}
-            - **Calculated Reward:** {proposal.calculated_reward or "Not specified"}
-            - **Vote Metrics:** {proposal.vote_metrics}
-            - **Timeline:** {proposal.timeline}
-            - **Content:**
-            ---
-            {proposal.content}
-            ---
-
-            **Instructions:**
-            Generate the output in the following format. The description should be a complete but summarized explanation of the proposal's main goal (around 2-3 sentences). Use the 'Calculated Reward' field for the reward value.
-
-            **Output Format:**
-            ## Proposal {proposal.id}:
-            **Title:** {proposal.title}
-            **Type:** [Extract from content, e.g., ReferendumV2, Child Bounty]
-            **Proposer:** [Proposer Address]
-            **Reward:** {proposal.calculated_reward or "Not specified"}
-            **Category:** [Extract from content, e.g., Development, Marketing, Infrastructure]
-            **Status:** {proposal.status}
-            **Creation Date:** {proposal.created_at[:10] if proposal.created_at else "N/A"}
-            **Description:** [A complete but summarized description of the proposal's main goal. ~2-3 sentences]
-            **Voting Status:** [Natural language summary of vote_metrics, e.g., "12 Aye votes, 35 Nay votes, 0.7 DOT in support"]
-            **Timeline:** [Natural language summary of timeline, e.g., "Submitted on 2025-07-18 → Deciding on 2025-07-18"]
-            """
+        Analyzes a single proposal using Gemini.
+        
+        Args:
+            proposal: The proposal data to analyze
+            custom_prompt: Optional custom prompt to use instead of the default
             
-            return await self._safe_gemini_call(prompt)
+        Returns:
+            AI-generated analysis of the proposal
+        """
+        if not self.client:
+            return "Could not generate analysis. AI client not available."
+        
+        try:
+            if custom_prompt:
+                # Use the custom prompt directly
+                response = await self._safe_gemini_call(custom_prompt)
+                return response
+            else:
+                # Use the default analysis prompt
+                prompt = f"""
+                Analyze this Polkadot governance proposal and provide a detailed summary in the following format:
 
+                ## {proposal.title}
+
+                **Type:** {proposal.proposal_type}
+                **Proposer:** {proposal.proposer}
+                **Reward:** {proposal.calculated_reward}
+                **Category:** [Extract from content]
+                **Status:** {proposal.status}
+                **Creation Date:** {proposal.created_at}
+
+                **Description:** [Provide a concise 2-3 sentence summary of what this proposal is about]
+
+                **Voting Status:** [Convert the following vote metrics to natural language with proper markdown: {proposal.vote_metrics}]
+
+                **Timeline:** [Convert the following timeline to natural language with proper markdown: {proposal.timeline}]
+
+                Here is the full proposal data:
+                {proposal.content}
+
+                Important guidelines:
+                - Keep descriptions concise and focused
+                - Convert all JSON data (votes, timeline) to natural language with markdown formatting
+                - Extract reward amount from beneficiaries data: {proposal.beneficiaries}
+                - Focus on key information that helps understand the proposal's purpose and current status
+                """
+                
+                response = await self._safe_gemini_call(prompt)
+                return response
+                
         except Exception as e:
-            logger.error(f"Error analyzing single proposal {proposal.id} with Gemini: {str(e)}")
-            return f"Error generating analysis for proposal {proposal.id}."
+            logger.error(f"Error in analyze_single_proposal: {str(e)}")
+            return f"Could not generate analysis. Error: {str(e)}"
 
-    async def compare_proposals(self, proposals: List[ProposalData]) -> str:
+    async def compare_proposals(self, proposals: List[ProposalData], custom_prompt: str = None) -> str:
         """
-        Compares multiple proposals using Gemini to generate and format the entire output.
-        Requires at least 2 proposals for comparison.
+        Compares multiple proposals using Gemini.
+        
+        Args:
+            proposals: List of proposal data to compare
+            custom_prompt: Optional custom prompt to use instead of the default
+            
+        Returns:
+            AI-generated comparison of the proposals
         """
-        valid_proposals = [p for p in proposals if not (hasattr(p, 'error') and p.error)]
-        if len(valid_proposals) < 2:
-            return "Error: At least 2 valid proposals are required for comparison analysis."
-
         if not self.client:
             return "Could not generate comparison. AI client not available."
-
+        
+        if len(proposals) < 2:
+            if len(proposals) == 1:
+                return await self.analyze_single_proposal(proposals[0], custom_prompt)
+            return "Cannot compare proposals. At least 2 proposals are required."
+        
         try:
-            proposal_details = ""
-            for p in valid_proposals:
-                proposal_details += f"""
-                ---
-                **Proposal Data (ID: {p.id}):**
-                - **Title:** {p.title}
-                - **Status:** {p.status}
-                - **Creation Date:** {p.created_at[:10] if p.created_at else "N/A"}
-                - **Proposer:** {p.proposer or "Not specified"}
-                - **Calculated Reward:** {p.calculated_reward or "Not specified"}
-                - **Vote Metrics:** {p.vote_metrics}
-                - **Timeline:** {p.timeline}
-                - **Content (first 2000 chars):** {p.content[:2000]}... 
-                ---
+            if custom_prompt:
+                # Use the custom prompt directly
+                response = await self._safe_gemini_call(custom_prompt)
+                return response
+            else:
+                # Use the default comparison prompt
+                individual_summaries = []
+                for i, proposal in enumerate(proposals, 1):
+                    summary = f"""
+                    **Proposal {i}: {proposal.title}**
+                    - **Type:** {proposal.proposal_type}
+                    - **Proposer:** {proposal.proposer}
+                    - **Reward:** {proposal.calculated_reward}
+                    - **Category:** [Extract from content]
+                    - **Status:** {proposal.status}
+                    - **Creation Date:** {proposal.created_at}
+                    - **Description:** [Provide a concise summary]
+                    - **Voting Status:** [Convert to natural language: {proposal.vote_metrics}]
+                    - **Timeline:** [Convert to natural language: {proposal.timeline}]
+                    
+                    Full content: {proposal.content}
+                    """
+                    individual_summaries.append(summary)
+                
+                prompt = f"""
+                Compare these {len(proposals)} Polkadot governance proposals and provide analysis in the following format:
+
+                {chr(10).join(individual_summaries)}
+
+                ## Comparison
+
+                **Cost:** [Compare the reward amounts and financial implications]
+
+                **Milestones:** [Compare the timelines, milestones, and deliverables]
+
+                **Impact on Polkadot:** [Compare the potential impact on the Polkadot ecosystem]
+
+                **Timeline:** [Compare the proposed timelines and urgency]
+
+                **Completeness:** [Compare how well-defined and detailed each proposal is]
+
+                Important guidelines:
+                - Provide concise, focused analysis
+                - Convert all JSON data to natural language with markdown formatting
+                - Focus on key differences and similarities
+                - Use the calculated_reward field for accurate reward information
                 """
-
-            prompt = f"""
-            Analyze and compare the following {len(valid_proposals)} proposals. Generate a detailed summary for each, followed by a final comparison section, all in markdown format.
-
-            **All Proposal Data:**
-            {proposal_details}
-
-            **Instructions:**
-            1.  For EACH proposal, create a summary section as specified in the format below. Use the 'Calculated Reward' provided for each proposal.
-            2.  After all individual summaries, create a "## Comparison" section.
-            3.  The description for each proposal must be a complete but summarized explanation of its purpose (~2-3 sentences).
-            4.  Convert raw JSON data for votes and timeline into readable, natural language summaries.
-            5.  The final comparison section must be concise (1 sentence per point).
-
-            **Required Output Format:**
-
-            ## Proposal [ID]:
-            **Title:** [Title]
-            **Type:** [Extract from content, e.g., ReferendumV2]
-            **Proposer:** [Proposer Address]
-            **Reward:** [Use the pre-calculated reward value from the data]
-            **Category:** [Extract from content, e.g., Development]
-            **Status:** [Status]
-            **Creation Date:** [Creation Date]
-            **Description:** [A complete but summarized description. ~2-3 sentences]
-            **Voting Status:** [Natural language summary of votes]
-            **Timeline:** [Natural language summary of timeline]
-
-            ## Proposal [Next ID]:
-            ... (repeat for each proposal) ...
-
-            ## Comparison:
-            **Cost:** [Compare funding amounts in 1 sentence]
-            **Milestones:** [Compare timelines and deliverables in 1 sentence]
-            **Impact on Polkadot:** [Compare ecosystem impact in 1 sentence]
-            **Timeline:** [Compare project timelines in 1 sentence]
-            **Completeness:** [Compare how well-defined each proposal is in 1 sentence]
-            """
-
-            return await self._safe_gemini_call(prompt)
-
+                
+                response = await self._safe_gemini_call(prompt)
+                return response
+                
         except Exception as e:
-            logger.error(f"Error comparing proposals with Gemini: {str(e)}")
-            return "Error generating proposal comparison."
+            logger.error(f"Error in compare_proposals: {str(e)}")
+            return f"Could not generate comparison. Error: {str(e)}"
 
     async def analyze_proposals(self, proposals: List[ProposalData]) -> str:
         """
