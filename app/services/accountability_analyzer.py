@@ -123,6 +123,23 @@ class AccountabilityAnalyzer:
             **Public communication and stakeholder engagement:** [✅/⚠️/❌] [Assessment in 1-2 sentences]
 
             **Overall Accountability Score:** [X/7] checkpoints met with strong accountability measures.
+
+            **Questions to answer:**
+            -When is the project successful?
+
+            -By when is the final delivery of the project expected?
+
+            -Details of the beneficiary:
+
+            -Which audience is targeted in this proposal?
+
+            -How will success be measured?
+
+            -What is the (measurable) benefit for Polkadot?
+
+            -Are deliverables clearly specified?
+
+            -What are the funds used for in this proposal?
             """
             
             return await self._safe_gemini_call(prompt)
@@ -204,6 +221,16 @@ class AccountabilityAnalyzer:
             **Overall Accountability Score:** [X/7]
 
             [Repeat the above format for each of the {len(valid_proposals)} proposals]
+
+            **Questions to answer:**
+            -When is the project successful?
+            -By when is the final delivery of the project expected?
+            -Details of the beneficiary:
+            -Which audience is targeted in this proposal?
+            -How will success be measured?
+            -What is the (measurable) benefit for Polkadot?
+            -Are deliverables clearly specified?
+            -What are the funds used for in this proposal?
 
             ## Comparative Accountability Summary:
             **Most Accountable:** Proposal [ID] with [X/7] strong checkpoints

@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from app.models.request_models import ExtractionRequest, EnhancedExtractionRequest, AccountabilityCheckRequest
-from app.models.response_models import ExtractionResponse, EnhancedExtractionResponse, AccountabilityCheckResponse
+from app.models.request_models import ExtractionRequest, EnhancedExtractionRequest, AccountabilityCheckRequest, GeneralChatRequest
+from app.models.response_models import ExtractionResponse, EnhancedExtractionResponse, AccountabilityCheckResponse, GeneralChatResponse
 from app.services.coordinator_agent import CoordinatorAgent
 from app.services.routing_service import RoutingService
 from app.services.algolia import PolkassemblySearch
@@ -54,6 +54,7 @@ async def root():
             "/extract": "Basic ID and link extraction",
             "/extract-with-proposals": "Enhanced extraction with proposal fetching and AI analysis",
             "/accountability-check": "Accountability analysis of proposals",
+            "/general-chat": "General question answering about proposals",
             "/route": "Intelligent prompt routing",
             "/search-and-analyze": "Search Algolia and analyze with Gemini",
             "/health": "Health check"
@@ -88,6 +89,16 @@ async def accountability_check(request: AccountabilityCheckRequest):
         return result  # Return directly, don't unpack with **
     except Exception as e:
         logger.error(f"Error in /accountability-check: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/general-chat", response_model=GeneralChatResponse)
+async def general_chat(request: GeneralChatRequest):
+    """General question answering about proposals"""
+    try:
+        result = await coordinator.process_prompt_with_general_chat(request.prompt)
+        return result  # Return directly, don't unpack with **
+    except Exception as e:
+        logger.error(f"Error in /general-chat: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/route")

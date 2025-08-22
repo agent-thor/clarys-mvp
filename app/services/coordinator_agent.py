@@ -5,10 +5,11 @@ from typing import Dict, Any, List, Tuple, Optional
 from app.agents.base_agent import BaseAgent
 from app.agents.llm_extractor_agent import LLMExtractorAgent
 from app.agents.regex_extractor_agent import RegexExtractorAgent
-from app.models.response_models import ExtractionResponse, EnhancedExtractionResponse, ProposalInfo, AccountabilityCheckResponse
+from app.models.response_models import ExtractionResponse, EnhancedExtractionResponse, ProposalInfo, AccountabilityCheckResponse, GeneralChatResponse
 from app.services.polkadot_api_client import PolkadotAPIClient, ProposalData
 from app.services.gemini_analyzer import GeminiAnalyzer
 from app.services.accountability_analyzer import AccountabilityAnalyzer
+from app.services.general_chat_analyzer import GeneralChatAnalyzer
 from app.services.routing_service import RoutingService
 from app.services.algolia import search_posts
 
@@ -20,6 +21,7 @@ class CoordinatorAgent(BaseAgent):
         self.api_client = PolkadotAPIClient()
         self.analyzer = GeminiAnalyzer()
         self.accountability_analyzer = AccountabilityAnalyzer()
+        self.general_chat_analyzer = GeneralChatAnalyzer()
         self.routing_service = RoutingService()  # Create instance
 
     def _parse_links(self, links: List[str]) -> List[Tuple[str, str]]:
@@ -553,6 +555,100 @@ Use markdown formatting for better readability and structure your response logic
         )
     
     # ... process_prompt method remains the same ...
+    async def process_prompt_with_general_chat(self, prompt: str) -> GeneralChatResponse:
+        """
+        Processes a prompt using intelligent routing for general question answering.
+        Uses the same logic as accountability check but with direct Q&A prompts.
+        """
+        self.log_info(f"General chat coordinating extraction for prompt: {prompt}")
+        
+        # 1. Route the request using Gemini-powered routing service
+        routing_info = await self.routing_service.process_routed_request(prompt)
+        data_source = routing_info.get("data_source", "dynamic")
+        
+        self.log_info(f"General chat request routed to: {data_source.upper()}")
+        
+        # 2. Process based on routing decision
+        if data_source == "dynamic":
+            ids, links, proposal_data_list = await self._process_dynamic_route(routing_info)
+        elif data_source == "algolia":
+            proposal_data_list = await self._process_algolia_route(routing_info)
+            
+            # Extract IDs from proposal data for response
+            ids = [p.id for p in proposal_data_list]
+            links = []  # Algolia doesn't provide direct links
+        else:
+            # Fallback case
+            self.log_info("Using fallback extraction for general chat")
+            extraction_result = await self.process_prompt(prompt)
+            ids = extraction_result.ids
+            links = extraction_result.links
+            
+            if ids:
+                # Fetch proposal data
+                proposals_to_fetch = {}
+                for proposal_id in ids:
+                    proposals_to_fetch[proposal_id] = "ReferendumV2"  # Default type
+                
+                if links:
+                    parsed_links = self._parse_links(links)
+                    for link_id, link_type in parsed_links:
+                        proposals_to_fetch[link_id] = link_type
+                
+                proposal_data_list = []
+                if proposals_to_fetch:
+                    async with PolkadotAPIClient() as api_client:
+                        by_type = {}
+                        for p_id, p_type in proposals_to_fetch.items():
+                            if p_type not in by_type:
+                                by_type[p_type] = []
+                            by_type[p_type].append(p_id)
+                        
+                        fetch_tasks = []
+                        for p_type, p_ids in by_type.items():
+                            fetch_tasks.append(self.api_client.fetch_multiple_proposals(p_ids, p_type))
+                        
+                        results_by_type = await asyncio.gather(*fetch_tasks)
+                        for result_set in results_by_type:
+                            proposal_data_list.extend(result_set)
+                    
+                    for p_data in proposal_data_list:
+                        p_data.calculated_reward = self._calculate_reward(p_data)
+            else:
+                proposal_data_list = []
+
+        # 3. Check if we have any valid data before proceeding
+        valid_proposals = [p for p in proposal_data_list if not (hasattr(p, 'error') and p.error)]
+        
+        if not valid_proposals:
+            self.log_info("No valid proposal data retrieved - returning empty response without answer")
+            return GeneralChatResponse(
+                ids=ids,
+                links=links,
+                proposals=[],
+                answer=""
+            )
+
+        # 4. Convert to ProposalInfo objects
+        proposals = []
+        for proposal_data in valid_proposals:
+            proposals.append(ProposalInfo(**proposal_data.__dict__))
+        
+        # 5. Generate AI Answer only if we have valid data
+        answer = None
+        if valid_proposals:
+            self.log_info(f"Generating AI answer for {len(valid_proposals)} valid proposals")
+            answer = await self.general_chat_analyzer.analyze_proposals_general_chat(valid_proposals, prompt)
+            self.log_info("AI answer generation completed")
+        
+        # 6. Construct Final Response
+        return GeneralChatResponse(
+            ids=ids,
+            links=links,
+            proposals=proposals,
+            answer=answer if answer else ""
+        )
+
     async def process_prompt(self, prompt: str) -> ExtractionResponse:
         """
         Coordinates the extraction of IDs and links from a given prompt.

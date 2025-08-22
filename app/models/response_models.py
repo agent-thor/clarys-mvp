@@ -75,4 +75,30 @@ class AccountabilityCheckResponse(BaseModel):
                 ],
                 "accountability_analysis": "## Accountability Analysis for Proposal 1679:\n\n**Economic feasibility and cost sharing:** ✅ Clear budget breakdown...\n**Technical implementation:** ⚠️ Needs more technical specifications..."
             }
+        }
+
+class GeneralChatResponse(BaseModel):
+    ids: List[str] = Field(default=[], description="List of extracted IDs")
+    links: List[str] = Field(default=[], description="List of extracted URLs")
+    proposals: List[ProposalInfo] = Field(default=[], description="Detailed proposal information for extracted IDs")
+    answer: Optional[str] = Field(default=None, description="AI-powered direct answer to the user's question")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "ids": ["1679"],
+                "links": [],
+                "proposals": [
+                    {
+                        "id": "1679",
+                        "title": "CLARYS.AI Beta Product Development",
+                        "content": "## Why do we need Clarys.AI?...",
+                        "status": "Deciding",
+                        "created_at": "2025-07-18T07:26:49.489Z",
+                        "proposer": "146ZZqm2cMHLf3ju7oc8M9JnPaAktuADAKThagKnXqzjPJbZ",
+                        "error": None
+                    }
+                ],
+                "answer": "Based on the proposal data, the main features of proposal 1679 include..."
+            }
         } 
