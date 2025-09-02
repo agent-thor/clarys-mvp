@@ -43,7 +43,8 @@ class RateLimitManager:
             True if user was found and reset, False if user not found
         """
         try:
-            async with database_service.get_session() as session:
+            session = await database_service.get_session()
+            try:
                 # Check if user exists
                 stmt = select(UserRateLimit).where(UserRateLimit.user_email == user_email)
                 result = await session.execute(stmt)
@@ -69,6 +70,8 @@ class RateLimitManager:
                 print(f"   Request count: {user_limit.request_count} → 0")
                 print(f"   Reset time: {user_limit.reset_time} → {datetime.utcnow()}")
                 return True
+            finally:
+                await session.close()
                 
         except Exception as e:
             print(f"❌ Error resetting rate limit for '{user_email}': {str(e)}")
@@ -82,7 +85,8 @@ class RateLimitManager:
             Number of users reset
         """
         try:
-            async with database_service.get_session() as session:
+            session = await database_service.get_session()
+            try:
                 # Get count of users before reset
                 count_stmt = select(UserRateLimit)
                 result = await session.execute(count_stmt)
@@ -105,6 +109,8 @@ class RateLimitManager:
                 
                 print(f"✅ Rate limits reset for {user_count} users")
                 return user_count
+            finally:
+                await session.close()
                 
         except Exception as e:
             print(f"❌ Error resetting all rate limits: {str(e)}")
@@ -113,7 +119,8 @@ class RateLimitManager:
     async def list_all_limits(self) -> None:
         """List all users and their current rate limit status"""
         try:
-            async with database_service.get_session() as session:
+            session = await database_service.get_session()
+            try:
                 stmt = select(UserRateLimit).order_by(UserRateLimit.updated_at.desc())
                 result = await session.execute(stmt)
                 users = result.scalars().all()
@@ -142,6 +149,8 @@ class RateLimitManager:
                     print(f"{user.user_email:<35} {user.request_count:<10} {user.reset_time.strftime('%Y-%m-%d %H:%M:%S'):<25} {status}")
                 
                 print("-" * 80)
+            finally:
+                await session.close()
                 
         except Exception as e:
             print(f"❌ Error listing rate limits: {str(e)}")
@@ -157,7 +166,8 @@ class RateLimitManager:
             True if user was found and deleted, False if user not found
         """
         try:
-            async with database_service.get_session() as session:
+            session = await database_service.get_session()
+            try:
                 # Check if user exists
                 stmt = select(UserRateLimit).where(UserRateLimit.user_email == user_email)
                 result = await session.execute(stmt)
@@ -178,6 +188,8 @@ class RateLimitManager:
                 print(f"✅ Rate limit record deleted for user '{user_email}'")
                 print(f"   User will start fresh on next request")
                 return True
+            finally:
+                await session.close()
                 
         except Exception as e:
             print(f"❌ Error deleting rate limit for '{user_email}': {str(e)}")

@@ -10,6 +10,9 @@ from app.services.rate_limiter import rate_limiter
 from pydantic import BaseModel
 import logging
 import time
+import json
+import os
+from typing import Dict, Any
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -125,6 +128,7 @@ async def root():
             "/general-chat": "General question answering about proposals",
             "/route": "Intelligent prompt routing",
             "/search-and-analyze": "Search Algolia and analyze with Gemini",
+            "/initiate": "Get all stored conversations from conversations.json",
             "/health": "Health check"
         }
     }
@@ -353,6 +357,49 @@ async def search_and_analyze(request: SearchAnalyzeRequest):
     except Exception as e:
         logger.error(f"Error in /search-and-analyze: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/initiate")
+async def get_conversations():
+    """
+    Get all stored conversations from conversations.json
+    
+    Returns:
+        Dict containing all stored conversations organized by endpoint
+    """
+    try:
+        # Path to conversations.json file
+        conversations_file = os.path.join(os.path.dirname(__file__), '..', 'data', 'conversations.json')
+        
+        # Check if file exists
+        if not os.path.exists(conversations_file):
+            return {
+                "message": "No conversations found",
+                "conversations": {}
+            }
+        
+        # Read and return the conversations file
+        with open(conversations_file, 'r', encoding='utf-8') as f:
+            conversations = json.load(f)
+        
+        return {
+            "message": "Conversations retrieved successfully",
+            "total_conversations": sum(len(convs) for convs in conversations.values()),
+            "endpoints": list(conversations.keys()),
+            "conversations": conversations
+        }
+        
+    except json.JSONDecodeError as e:
+        logger.error(f"Error parsing conversations.json: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail="Error parsing conversations file"
+        )
+    except Exception as e:
+        logger.error(f"Error reading conversations: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail="Error retrieving conversations"
+        )
 
 @app.get("/health")
 async def health_check():
