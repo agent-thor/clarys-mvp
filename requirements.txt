@@ -5,4 +5,7 @@ google-genai==0.3.0
 python-dotenv==1.0.0
 httpx==0.25.2
 pytest==7.4.3
-pytest-asyncio==0.21.1 
+pytest-asyncio==0.21.1
+asyncpg==0.29.0
+sqlalchemy==2.0.23
+alembic==1.13.1 

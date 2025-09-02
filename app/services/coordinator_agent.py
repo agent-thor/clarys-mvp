@@ -356,7 +356,7 @@ Use markdown formatting for better readability and structure your response logic
         
         return proposal_data_list 
 
-    async def process_prompt_with_proposals(self, prompt: str) -> EnhancedExtractionResponse:
+    async def process_prompt_with_proposals(self, prompt: str, remaining_requests: int = 0) -> EnhancedExtractionResponse:
         """
         Processes a prompt using intelligent routing to determine data source,
         fetches data accordingly, and generates an AI analysis.
@@ -428,7 +428,8 @@ Use markdown formatting for better readability and structure your response logic
                 ids=ids,
                 links=links,
                 proposals=[],
-                analysis=""
+                analysis="",
+                remaining_requests=remaining_requests
             )
 
         # 4. Convert to ProposalInfo objects
@@ -453,10 +454,11 @@ Use markdown formatting for better readability and structure your response logic
             ids=ids,
             links=links,
             proposals=proposals,
-            analysis=analysis
+            analysis=analysis,
+            remaining_requests=remaining_requests
         )
 
-    async def process_prompt_with_accountability_check(self, prompt: str) -> AccountabilityCheckResponse:
+    async def process_prompt_with_accountability_check(self, prompt: str, remaining_requests: int = 0) -> AccountabilityCheckResponse:
         """
         Processes a prompt using intelligent routing for accountability analysis.
         """
@@ -526,7 +528,8 @@ Use markdown formatting for better readability and structure your response logic
                 ids=ids,
                 links=links,
                 proposals=[],
-                accountability_analysis=""
+                accountability_analysis="",
+                remaining_requests=remaining_requests
             )
 
         # 4. Convert to ProposalInfo objects
@@ -551,11 +554,12 @@ Use markdown formatting for better readability and structure your response logic
             ids=ids,
             links=links,
             proposals=proposals,
-            accountability_analysis=accountability_analysis
+            accountability_analysis=accountability_analysis,
+            remaining_requests=remaining_requests
         )
     
     # ... process_prompt method remains the same ...
-    async def process_prompt_with_general_chat(self, prompt: str) -> GeneralChatResponse:
+    async def process_prompt_with_general_chat(self, prompt: str, remaining_requests: int = 0) -> GeneralChatResponse:
         """
         Processes a prompt using intelligent routing for general question answering.
         Uses the same logic as accountability check but with direct Q&A prompts.
@@ -626,7 +630,8 @@ Use markdown formatting for better readability and structure your response logic
                 ids=ids,
                 links=links,
                 proposals=[],
-                answer=""
+                answer="",
+                remaining_requests=remaining_requests
             )
 
         # 4. Convert to ProposalInfo objects
@@ -646,7 +651,8 @@ Use markdown formatting for better readability and structure your response logic
             ids=ids,
             links=links,
             proposals=proposals,
-            answer=answer if answer else ""
+            answer=answer if answer else "",
+            remaining_requests=remaining_requests
         )
 
     async def process_prompt(self, prompt: str) -> ExtractionResponse:

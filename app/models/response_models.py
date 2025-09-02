@@ -16,12 +16,14 @@ class ProposalInfo(BaseModel):
 class ExtractionResponse(BaseModel):
     ids: List[str] = Field(default=[], description="List of extracted IDs")
     links: List[str] = Field(default=[], description="List of extracted URLs")
+    remaining_requests: int = Field(description="Number of remaining requests for this user")
     
     class Config:
         json_schema_extra = {
             "example": {
                 "ids": ["1679", "1680"],
-                "links": ["https://polkadot.polkassembly.io/referenda/1679"]
+                "links": ["https://polkadot.polkassembly.io/referenda/1679"],
+                "remaining_requests": 19
             }
         }
 
@@ -30,6 +32,7 @@ class EnhancedExtractionResponse(BaseModel):
     links: List[str] = Field(default=[], description="List of extracted URLs")
     proposals: List[ProposalInfo] = Field(default=[], description="Detailed proposal information for extracted IDs")
     analysis: Optional[str] = Field(default=None, description="AI-powered analysis or comparison of proposals")
+    remaining_requests: int = Field(description="Number of remaining requests for this user")
     
     class Config:
         json_schema_extra = {
@@ -47,7 +50,8 @@ class EnhancedExtractionResponse(BaseModel):
                         "error": None
                     }
                 ],
-                "analysis": "Proposal 1679:\nTitle: CLARYS.AI Beta Product Development\n...\nComparison:\nCost: Proposal 1679 requests 129K USDC..."
+                "analysis": "Proposal 1679:\nTitle: CLARYS.AI Beta Product Development\n...\nComparison:\nCost: Proposal 1679 requests 129K USDC...",
+                "remaining_requests": 19
             }
         }
 
@@ -56,6 +60,7 @@ class AccountabilityCheckResponse(BaseModel):
     links: List[str] = Field(default=[], description="List of extracted URLs")
     proposals: List[ProposalInfo] = Field(default=[], description="Detailed proposal information for extracted IDs")
     accountability_analysis: Optional[str] = Field(default=None, description="AI-powered accountability analysis of proposals")
+    remaining_requests: int = Field(description="Number of remaining requests for this user")
     
     class Config:
         json_schema_extra = {
@@ -73,7 +78,8 @@ class AccountabilityCheckResponse(BaseModel):
                         "error": None
                     }
                 ],
-                "accountability_analysis": "## Accountability Analysis for Proposal 1679:\n\n**Economic feasibility and cost sharing:** ✅ Clear budget breakdown...\n**Technical implementation:** ⚠️ Needs more technical specifications..."
+                "accountability_analysis": "## Accountability Analysis for Proposal 1679:\n\n**Economic feasibility and cost sharing:** ✅ Clear budget breakdown...\n**Technical implementation:** ⚠️ Needs more technical specifications...",
+                "remaining_requests": 19
             }
         }
 
@@ -82,6 +88,7 @@ class GeneralChatResponse(BaseModel):
     links: List[str] = Field(default=[], description="List of extracted URLs")
     proposals: List[ProposalInfo] = Field(default=[], description="Detailed proposal information for extracted IDs")
     answer: Optional[str] = Field(default=None, description="AI-powered direct answer to the user's question")
+    remaining_requests: int = Field(description="Number of remaining requests for this user")
     
     class Config:
         json_schema_extra = {
@@ -99,6 +106,7 @@ class GeneralChatResponse(BaseModel):
                         "error": None
                     }
                 ],
-                "answer": "Based on the proposal data, the main features of proposal 1679 include..."
+                "answer": "Based on the proposal data, the main features of proposal 1679 include...",
+                "remaining_requests": 19
             }
         } 
